@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Quiz Score Metrics</title>
+    <style>
+        body {
+          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+          background-color: #f7f9fc;
+          padding: 40px;
+          color: #333;
+        }
+
+        h2 {
+          text-align: center;
+          color: #2c3e50;
+          margin-bottom: 30px;
+        }
+
+        .filter-container {
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          gap: 10px;
+          flex-wrap: wrap;
+          margin-bottom: 20px;
+        }
+
+        input[type="date"] {
+          padding: 10px;
+          border: 1px solid #ccc;
+          border-radius: 8px;
+          font-size: 16px;
+          transition: border-color 0.3s;
+        }
+
+        input[type="date"]:focus {
+          border-color: #2980b9;
+          outline: none;
+        }
+
+        button {
+          padding: 10px 20px;
+          background-color: #2980b9;
+          color: white;
+          border: none;
+          border-radius: 8px;
+          font-size: 16px;
+          cursor: pointer;
+          transition: background-color 0.3s, transform 0.2s;
+        }
+
+        button:hover {
+          background-color: #1c6ea4;
+          transform: scale(1.03);
+        }
+
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          margin-top: 20px;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+          background-color: white;
+          border-radius: 12px;
+          overflow: hidden;
+        }
+
+        th, td {
+          padding: 14px 20px;
+          border-bottom: 1px solid #eaeaea;
+          text-align: center;
+        }
+
+        th {
+          background-color: #3498db;
+          color: white;
+          text-transform: uppercase;
+          font-size: 14px;
+        }
+
+        tr:hover td {
+          background-color: #f2f9ff;
+        }
+
+        @media (max-width: 600px) {
+          table, thead, tbody, th, td, tr {
+            display: block;
+          }
+
+          th {
+            text-align: left;
+          }
+
+          td {
+            text-align: right;
+            position: relative;
+            padding-left: 50%;
+          }
+
+          td::before {
+            position: absolute;
+            top: 12px;
+            left: 20px;
+            width: 45%;
+            padding-right: 10px;
+            white-space: nowrap;
+            font-weight: bold;
+            color: #888;
+          }
+
+          td:nth-of-type(1)::before { content: "Participant"; }
+          td:nth-of-type(2)::before { content: "Score"; }
+          td:nth-of-type(3)::before { content: "Date"; }
+        }
+    </style>
+    <a href="/" class="btn-home">Back to Home</a>
+
+</head>
+<body>
+
+<h2>Quiz Score Metrics</h2>
+
+<div class="filter-container">
+    <label for="startDate">Start Date:</label>
+    <input type="date" id="startDate">
+
+    <label for="endDate">End Date:</label>
+    <input type="date" id="endDate">
+
+    <button onclick="filterData()">Show Metrics</button>
+</div>
+
+<table id="metricsTable">
+    <thead>
+    <tr>
+        <th>Participant</th>
+        <th>Score</th>
+        <th>Date</th>
+    </tr>
+    </thead>
+    <tbody>
+    <!-- Filtered rows will go here -->
+    </tbody>
+</table>
+
+<h3 style="margin-top: 40px; text-align: center;">Average Score Over Time</h3>
+<canvas id="scoreChart" height="100"></canvas>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    const quizData = [
+          { name: "Alice", score: 60, date: "2025-07-28" },
+          { name: "Bob", score: 70, date: "2025-07-30" },
+          { name: "Charlie", score: 78, date: "2025-08-01" },
+          { name: "Diana", score: 50, date: "2025-07-25" },
+          { name: "Ethan", score: 92, date: "2025-08-01" }
+        ];
+
+        let chartInstance = null;
+
+        function filterData() {
+          const startDate = document.getElementById("startDate").value;
+          const endDate = document.getElementById("endDate").value;
+          const tbody = document.querySelector("#metricsTable tbody");
+          tbody.innerHTML = "";
+
+          if (!startDate || !endDate) {
+            alert("Please select both start and end dates.");
+            return;
+          }
+
+          // Fetch participants from backend
+          fetch(`/participants/by-date?start=${startDate}&end=${endDate}`)
+            .then(response => response.json())
+            .then(participants => {
+              // Map with quizData
+              const mapped = participants.map(p => {
+                const match = quizData.find(q => q.name === p.name && q.quizzDate === p.quizzDate);
+                return match ? match : { name: p.name, score: p.score, date: p.quizzDate };
+              });
+
+              if (mapped.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="3">No data found for selected dates</td></tr>`;
+                if (chartInstance) chartInstance.destroy();
+                return;
+              }
+
+              // Fill table
+              mapped.forEach(entry => {
+                const row = `<tr>
+                  <td>${entry.name}</td>
+                  <td>${entry.score}</td>
+                  <td>${entry.date}</td>
+                </tr>`;
+                tbody.innerHTML += row;
+              });
+
+              // Group by date for chart
+              const grouped = {};
+              mapped.forEach(entry => {
+                if (!grouped[entry.date]) grouped[entry.date] = [];
+                if (!isNaN(entry.score)) {
+                  grouped[entry.date].push(entry.score);
+                }
+              });
+
+              const labels = Object.keys(grouped).sort();
+              const averages = labels.map(date => {
+                const scores = grouped[date];
+                const sum = scores.reduce((a, b) => a + b, 0);
+                return (sum / scores.length).toFixed(2);
+              });
+
+              // Draw chart
+              const ctx = document.getElementById('scoreChart').getContext('2d');
+              if (chartInstance) chartInstance.destroy();
+
+              chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                  labels: labels,
+                  datasets: [{
+                    label: 'Average Score',
+                    data: averages,
+                    borderColor: '#3498db',
+                    backgroundColor: 'rgba(52, 152, 219, 0.2)',
+                    fill: true,
+                    tension: 0.3,
+                    pointBackgroundColor: '#2980b9',
+                    pointRadius: 5
+                  }]
+                },
+                options: {
+                  responsive: true,
+                  plugins: {
+                    legend: { display: true },
+                    tooltip: { enabled: true }
+                  },
+                  scales: {
+                    y: {
+                      beginAtZero: true,
+                      title: {
+                        display: true,
+                        text: 'Average Score'
+                      }
+                    },
+                    x: {
+                      title: {
+                        display: true,
+                        text: 'Date'
+                      }
+                    }
+                  }
+                }
+              });
+            })
+            .catch(err => {
+              console.error("Error fetching participants:", err);
+              alert("Error fetching data.");
+            });
+        }
+</script>
+</body>
+</html>
